@@ -1,6 +1,5 @@
 from __future__ import absolute_import
 import argparse
-import docker
 import os
 import random
 import sys

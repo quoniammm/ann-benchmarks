@@ -3,7 +3,6 @@ __true_print = print  # noqa
 
 import argparse
 import datetime
-import docker
 import json
 import multiprocessing
 import numpy

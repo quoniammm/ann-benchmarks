@@ -86,15 +86,6 @@ def main():
         '--batch',
         action='store_true',
         help='If set, algorithms get all queries at once')
-    parser.add_argument(
-        '--max-n-algorithms',
-        type=int,
-        help='Max number of algorithms to run (just used for testing)',
-        default=-1)
-    parser.add_argument(
-        '--run-disabled',
-        help='run algorithms that are disabled in algos.yml',
-        action='store_true')
 
     args = parser.parse_args()
     if args.timeout == -1:
@@ -145,57 +136,27 @@ def main():
         print('running only', args.algorithm)
         definitions = [d for d in definitions if d.algorithm == args.algorithm]
 
-    if not args.local:
-        # See which Docker images we have available
-        docker_client = docker.from_env()
-        docker_tags = set()
-        for image in docker_client.images.list():
-            for tag in image.tags:
-                tag = tag.split(':')[0]
-                docker_tags.add(tag)
+    def _test(df):
+        status = algorithm_status(df)
+        # If the module was loaded but doesn't actually have a constructor
+        # of the right name, then the definition is broken
+        if status == InstantiationStatus.NO_CONSTRUCTOR:
+            raise Exception("%s.%s(%s): error: the module '%s' does not"
+                            " expose the named constructor" % (
+                                df.module, df.constructor,
+                                df.arguments, df.module))
 
-        if args.docker_tag:
-            print('running only', args.docker_tag)
-            definitions = [
-                d for d in definitions if d.docker_tag == args.docker_tag]
-
-        if set(d.docker_tag for d in definitions).difference(docker_tags):
-            print('not all docker images available, only:', set(docker_tags))
-            print('missing docker images:', set(
-                d.docker_tag for d in definitions).difference(docker_tags))
-            definitions = [
-                d for d in definitions if d.docker_tag in docker_tags]
-    else:
-        def _test(df):
-            status = algorithm_status(df)
-            # If the module was loaded but doesn't actually have a constructor
-            # of the right name, then the definition is broken
-            if status == InstantiationStatus.NO_CONSTRUCTOR:
-                raise Exception("%s.%s(%s): error: the module '%s' does not"
-                                " expose the named constructor" % (
-                                    df.module, df.constructor,
-                                    df.arguments, df.module))
-
-            if status == InstantiationStatus.NO_MODULE:
-                # If the module couldn't be loaded (presumably because
-                # of a missing dependency), print a warning and remove
-                # this definition from the list of things to be run
-                print("%s.%s(%s): warning: the module '%s' could not be "
-                      "loaded; skipping" % (df.module, df.constructor,
-                                            df.arguments, df.module))
-                return False
-            else:
-                return True
-        definitions = [d for d in definitions if _test(d)]
-
-    if not args.run_disabled:
-        if len([d for d in definitions if d.disabled]):
-            print('Not running disabled algorithms:', [
-                  d for d in definitions if d.disabled])
-        definitions = [d for d in definitions if not d.disabled]
-
-    if args.max_n_algorithms >= 0:
-        definitions = definitions[:args.max_n_algorithms]
+        if status == InstantiationStatus.NO_MODULE:
+            # If the module couldn't be loaded (presumably because
+            # of a missing dependency), print a warning and remove
+            # this definition from the list of things to be run
+            print("%s.%s(%s): warning: the module '%s' could not be "
+                    "loaded; skipping" % (df.module, df.constructor,
+                                        df.arguments, df.module))
+            return False
+        else:
+            return True
+    definitions = [d for d in definitions if _test(d)]
 
     if len(definitions) == 0:
         raise Exception('Nothing to run')
@@ -206,12 +167,8 @@ def main():
         print(definition, '...')
 
         try:
-            if args.local:
-                run(definition, args.dataset, args.count, args.runs,
-                    args.batch)
-            else:
-                run_docker(definition, args.dataset, args.count,
-                           args.runs, args.timeout, args.batch)
+            run(definition, args.dataset, args.count, args.runs,
+                args.batch)
         except KeyboardInterrupt:
             break
         except:
